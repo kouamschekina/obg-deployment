@@ -57,14 +57,21 @@ output = json
 ## Infrastructure Components
 
 ### What Gets Deployed:
-1. **VPC** with public and private subnets
+1. **VPC** with public and private subnets in single AZ (eu-north-1a)
 2. **NAT Gateway** with Elastic IP for outbound internet access
 3. **EC2 Instance** (t3.large) in private subnet
 4. **IAM Role** with SSM and CloudWatch permissions
 5. **Security Groups** for HTTP/HTTPS traffic
-6. **ACM Certificate** for `obgdeb.com` and `*.obgdeb.com`
-7. **Route53 DNS Records** (wildcard and main domain)
-8. **CloudWatch Monitoring** with alarms
+6. **Application Load Balancer** with HTTPS termination
+7. **ACM Certificate** for `obgdeb.com` and `*.obgdeb.com`
+8. **Route53 DNS Records** (wildcard and main domain)
+9. **CloudWatch Monitoring** with alarms
+
+### Current Architecture Notes:
+- **Single AZ**: Cost-optimized setup with single NAT Gateway
+- **Single Instance**: One EC2 instance for development/testing
+- **Efficient Resource Usage**: All resources properly utilized
+- **Health Check**: ALB uses `/` path for health checks
 
 ## Deployment Steps
 
@@ -102,6 +109,10 @@ terraform output hosted_zone_id
 
 # Check certificate status
 terraform output certificate_arn
+
+# Check ALB information
+terraform output alb_dns_name
+terraform output alb_zone_id
 ```
 
 ## Post-Deployment
@@ -112,6 +123,15 @@ terraform output certificate_arn
 - **Fintech Server**: https://fintech-server.obgdeb.com
 - **Consent UI**: https://consent.obgdeb.com
 - **HBCI Sandbox**: https://sandbox.obgdeb.com
+
+### Health Check
+The ALB health check is configured to use `/` endpoint. Ensure your application serves content at the root path for proper health monitoring.
+
+### Current Architecture Status
+- **Single EC2 Instance**: Running in eu-north-1a private subnet
+- **Single AZ ALB**: Spans single AZ with single target
+- **NAT Gateway**: Single NAT Gateway serving the AZ
+- **Cost**: ~$80/month (cost-optimized setup)
 
 ### EC2 Instance Access
 ```bash
@@ -213,6 +233,15 @@ terraform taint 'module.ec2.module.ec2_instance.aws_instance.this[0]'
 
 Then re-run `terraform apply` to recreate the instance.
 
+#### 6. Multi-AZ vs Single Instance Issues
+- **Issue**: ALB shows unhealthy targets despite EC2 being healthy
+- **Cause**: ALB spans both AZs but EC2 is only in one AZ
+- **Solution**: Either add second EC2 instance or switch to single AZ
+
+- **Issue**: High NAT Gateway costs
+- **Cause**: Paying for NAT Gateway in both AZs but only using one
+- **Solution**: Consider single AZ setup for cost optimization
+
 ## Cleanup
 
 ### Destroy Infrastructure
@@ -237,13 +266,32 @@ aws acm delete-certificate --certificate-arn <cert-arn>
 
 ### Monthly Costs (approximate):
 - **EC2 t3.large**: ~$30/month
-- **NAT Gateway**: ~$45/month
+- **NAT Gateway (1 AZ)**: ~$45/month
 - **Route53**: ~$0.50/month
 - **CloudWatch**: ~$5/month
 - **ACM Certificate**: Free
 - **Data Transfer**: Variable
 
-**Total**: ~$80-100/month
+**Total**: ~$80/month
+
+### Future Scaling Options:
+
+#### Option 1: Multi-Instance Single AZ (High Availability)
+- **Additional Cost**: ~$30/month for second EC2
+- **Changes**: Add second EC2 instance in same AZ
+- **Impact**: Better availability, higher cost
+- **Monthly Cost**: ~$110/month
+
+#### Option 2: Multi-AZ Setup (Production Grade)
+- **Additional Cost**: ~$45/month for second AZ
+- **Changes**: Add second AZ with EC2 instance
+- **Impact**: High availability, higher cost
+- **Monthly Cost**: ~$125/month
+
+#### Option 3: Keep Current (Development Setup)
+- **Recommendation**: Keep as-is for development/testing
+- **Note**: Cost-optimized single instance setup
+- **Monthly Cost**: ~$80/month
 
 ## Support
 
